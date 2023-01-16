@@ -1,0 +1,6 @@
+im_paths,gt_paths
+data/3Dircadb1/3Dircadb1.16/PATIENT_DICOM,data/3Dircadb1/3Dircadb1.16/MASKS_DICOM/portalvein
+data/3Dircadb1/3Dircadb1.17/PATIENT_DICOM,data/3Dircadb1/3Dircadb1.17/MASKS_DICOM/portalvein
+data/3Dircadb1/3Dircadb1.18/PATIENT_DICOM,data/3Dircadb1/3Dircadb1.18/MASKS_DICOM/portalvein
+data/3Dircadb1/3Dircadb1.19/PATIENT_DICOM,data/3Dircadb1/3Dircadb1.19/MASKS_DICOM/portalvein
+data/3Dircadb1/3Dircadb1.20/PATIENT_DICOM,data/3Dircadb1/3Dircadb1.20/MASKS_DICOM/portalvein
