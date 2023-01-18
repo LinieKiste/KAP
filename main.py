@@ -1,45 +1,47 @@
 #!/bin/env python3
 import models.get_model
 import torch
-from utils.loader import DicomDataset
+from utils.loader import DicomDataset2D
 from tqdm import tqdm
 from torch.utils.data import DataLoader
 from torchmetrics.classification import AUROC
 
-BATCH_SIZE = 50
-EPOCHS = 2
+BATCH_SIZE = 20
+EPOCHS = 10
 
 def train(model, optimizer, criterion):
     device='cuda' if next(model.parameters()).is_cuda else 'cpu'
 
     model.train()
-    model.to(device)
 
-    train_dataloader = DataLoader(DicomDataset("data/train.csv"), batch_size=BATCH_SIZE)
-    test_dataloader = DataLoader(DicomDataset("data/test.csv"), batch_size=BATCH_SIZE)
+    train_dataloader = DataLoader(DicomDataset2D("data/train.csv"), batch_size=BATCH_SIZE)
+    test_dataloader = DataLoader(DicomDataset2D("data/test.csv"), batch_size=BATCH_SIZE)
 
-    for data in tqdm(iter(train_dataloader)):
-        inputs, labels = data
+    for epoch in range(EPOCHS):
+        print("EPOCH ", epoch)
+        for data in tqdm(iter(train_dataloader)):
+            inputs, labels = data
 
-        optimizer.zero_grad()
+            optimizer.zero_grad()
 
-        _, output = model(inputs)
-        loss = criterion(output, labels)
+            _, output = model(inputs)
+            loss = criterion(output, labels)
 
-        loss.backward()
-        optimizer.step()
+            loss.backward()
+            optimizer.step()
 
-        # evaluate model
-        print('evaluating...')
-        with torch.no_grad():
-            auroc = AUROC(task='binary')
+            # evaluate model
+            print('evaluating...')
+            with torch.no_grad():
+                auroc = AUROC(task='binary')
 
-            for data in iter(test_dataloader):
-                inputs, target = data
-                _, preds = model(inputs)
+                for data in iter(test_dataloader):
+                    inputs, target = data
+                    _, preds = model(inputs)
 
-                res = auroc(preds, target)
-                print(res)
+                    res = auroc(preds, target)
+                    print(res)
+                    break
 
     """
     for epoch in range(EPOCHS):
