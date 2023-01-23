@@ -1,5 +1,6 @@
 from torch.utils.data.dataset import Dataset
 from torchvision.transforms import functional as F
+from torchvision.transforms import CenterCrop
 
 import torch
 import numpy as np
@@ -14,7 +15,7 @@ def default_transform_2d(input):
     input = np.array(input)
 
     input = torch.tensor(input)
-    input = F.convert_image_dtype(input, torch.float32)
+    input = F.convert_image_dtype(input, torch.bfloat16)
 
     # add extra dimension
     input = torch.unsqueeze(input, 0)
@@ -58,14 +59,17 @@ class DicomDataset2D(Dataset):
             self.shortest = curr if curr < self.shortest else self.shortest
 
 def default_transform_3d(input: np.ndarray):
+    input = torch.tensor(input)
+    output = torch.empty((len(input), len(input[0])//2, len(input[0][0])//2), dtype=torch.bfloat16)
     for i, img in enumerate(input):
-        input[i] = (F.convert_image_dtype(img, torch.float32))
+        img = CenterCrop((len(img)//2, len(img[0])//2))(img)
+        output[i] = F.convert_image_dtype(img, torch.bfloat16)
 
-    input = torch.unsqueeze(input, 0)
-    return input
+    output = torch.unsqueeze(output, 0)
+    return output
 
 class DicomDataset3D(Dataset):
-    def __init__(self, csv_path, transform=default_transform_2d):
+    def __init__(self, csv_path, transform=default_transform_3d):
         df = pd.read_csv(csv_path)
         self.im_list = df.im_paths
         self.gt_list = df.gt_paths

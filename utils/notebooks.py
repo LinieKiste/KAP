@@ -1,6 +1,9 @@
 import matplotlib.pyplot as plt
+from torchvision.transforms import functional as F
+import torch
 
 def show(img, layer=None):
+    img = F.convert_image_dtype(img, torch.float32)
     if img.requires_grad:
         img = img.detach()
     if layer is not None:
