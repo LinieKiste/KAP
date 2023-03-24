@@ -15,6 +15,8 @@ class wnet(torch.nn.Module):
     def forward(self, x):
         x1 = self.unet1(x)
         x2 = self.unet2(torch.cat([x, x1], dim=1))
+        print(f'x2 shape: {x2.shape}')
+        print(f'cat shape: {torch.cat([x, x1], dim=1).shape}')
         if self.mode!='train':
             return x2
         return x1,x2

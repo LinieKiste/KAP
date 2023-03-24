@@ -2,6 +2,7 @@ from torch.utils.data.dataset import Dataset
 from torchvision.transforms import functional as F
 from torchvision.transforms import CenterCrop
 
+import PIL
 import torch
 import numpy as np
 import pandas as pd
@@ -60,10 +61,10 @@ class DicomDataset2D(Dataset):
 
 def default_transform_3d(input: np.ndarray):
     input = torch.tensor(input)
-    output = torch.empty((len(input), len(input[0])//2, len(input[0][0])//2), dtype=torch.bfloat16)
+    output = torch.empty((len(input), len(input[0])//2, len(input[0][0])//2), dtype=torch.float32)
     for i, img in enumerate(input):
         img = CenterCrop((len(img)//2, len(img[0])//2))(img)
-        output[i] = F.convert_image_dtype(img, torch.bfloat16)
+        output[i] = img.to(torch.float32)# F.convert_image_dtype(img, torch.bfloat16)
 
     output = torch.unsqueeze(output, 0)
     return output
@@ -85,13 +86,18 @@ class DicomDataset3D(Dataset):
         slices = sorted(os.listdir(self.im_list[index]), key=lambda f: int(re.sub(r'\D', '', f)))
         for i, sl in zip(range(self.shortest), slices):
             path = f"{self.im_list[index]}/{sl}"
-            img[i] = pydicom.dcmread(path).pixel_array
+
+            tmp = pydicom.dcmread(path)
+            tmp.decompress()
+            tmp.convert_pixel_data('pillow')
+            img[i] = tmp.pixel_array
 
         target = np.ndarray(shape=(self.shortest, 512, 512))
         slices = sorted(os.listdir(self.gt_list[index]), key=lambda f: int(re.sub(r'\D', '', f)))
         for i, sl in zip(range(self.shortest), slices):
             path = f"{self.gt_list[index]}/{sl}"
-            target[i] = pydicom.dcmread(path).pixel_array
+            tmp = pydicom.dcmread(path)
+            target[i] = tmp.pixel_array/255
 
         if self.transform is not None:
             img = self.transform(img)
@@ -106,3 +112,6 @@ class DicomDataset3D(Dataset):
         for im in self.im_list:
             curr = len(os.listdir(im))
             self.shortest = curr if curr < self.shortest else self.shortest
+        # ensure it is divisible by 4
+        self.shortest //= 4
+        self.shortest *= 4
