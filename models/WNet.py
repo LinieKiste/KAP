@@ -81,7 +81,7 @@ class UNet(nn.Module):
         self.encoder = Encoder(layers)
         self.decoder = Decoder(list(reversed(layers[1:])))
         self.head = nn.Conv3d(layers[1], 1, 1)
-        ...
+        self.final = nn.Sigmoid()
 
         if torch.cuda.is_available():
             self.cuda()
@@ -91,6 +91,7 @@ class UNet(nn.Module):
         enc_ftrs = self.encoder(x)
         x = self.decoder(enc_ftrs[::-1][0], enc_ftrs[::-1][1:])
         x = self.head(x)
+        x = self.final(x)
         return x
 
 class WNet(nn.Module):

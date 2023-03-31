@@ -11,6 +11,8 @@ import os
 import math
 import regex as re
 
+DATA_TYPE = torch.float32
+
 # PyTorch does not support uint16, so ToTensor() does not work :(
 def default_transform_2d(input):
     input = np.array(input)
@@ -59,23 +61,45 @@ class DicomDataset2D(Dataset):
             curr = len(os.listdir(im))
             self.shortest = curr if curr < self.shortest else self.shortest
 
+def window_normalize(input: np.ndarray, window_center=40, window_width=400):
+    min_hu = window_center - (window_width / 2)
+    max_hu = window_center + (window_width / 2)
+
+    input = np.clip(input, min_hu, max_hu)
+    input = (input - min_hu) / (max_hu - min_hu)
+
+    return input
+
 def default_transform_3d(input: np.ndarray):
+    input = window_normalize(input)
+
     input = torch.tensor(input)
-    output = torch.empty((len(input), len(input[0])//2, len(input[0][0])//2), dtype=torch.float32)
+    output = torch.empty((len(input), len(input[0])//2, len(input[0][0])//2), dtype=DATA_TYPE)
     for i, img in enumerate(input):
         img = CenterCrop((len(img)//2, len(img[0])//2))(img)
-        output[i] = img.to(torch.float32)# F.convert_image_dtype(img, torch.bfloat16)
+        output[i] = img.to(DATA_TYPE)# F.convert_image_dtype(img, torch.bfloat16)
 
     output = torch.unsqueeze(output, 0)
     return output
 
+def target_transform_3d(input: np.ndarray):
+    # input = (input == 255).astype(np.float32)
+    input = torch.tensor(input)
+
+    output = torch.empty((len(input), len(input[0])//2, len(input[0][0])//2), dtype=DATA_TYPE)
+    for i, img in enumerate(input):
+        img = CenterCrop((len(img)//2, len(img[0])//2))(img)
+        output[i] = img.to(DATA_TYPE)
+
+    output = torch.unsqueeze(output, 0)
+    return output
+
+
 class DicomDataset3D(Dataset):
-    def __init__(self, csv_path, transform=default_transform_3d):
+    def __init__(self, csv_path):
         df = pd.read_csv(csv_path)
         self.im_list = df.im_paths
         self.gt_list = df.gt_paths
-
-        self.transform = transform
 
         self.shortest = 2147483647
         self.get_shortest_dicom()
@@ -99,9 +123,8 @@ class DicomDataset3D(Dataset):
             tmp = pydicom.dcmread(path)
             target[i] = tmp.pixel_array/255
 
-        if self.transform is not None:
-            img = self.transform(img)
-            target = self.transform(target)
+        img = default_transform_3d(img)
+        target = target_transform_3d(target)
 
         return img, target
 
