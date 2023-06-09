@@ -1,6 +1,5 @@
 from torch.utils.data.dataset import Dataset
 from torchvision.transforms import functional as F
-from torchvision.transforms import CenterCrop
 
 import PIL
 import torch
@@ -10,8 +9,10 @@ import pydicom
 import os
 import math
 import regex as re
+import random
 
 DATA_TYPE = torch.float32
+AUGMENT_TIMES = 8
 
 # PyTorch does not support uint16, so ToTensor() does not work :(
 def default_transform_2d(input):
@@ -70,30 +71,49 @@ def window_normalize(input: np.ndarray, window_center=40, window_width=400):
 
     return input
 
-def default_transform_3d(input: np.ndarray):
+def default_transform_3d(input: np.ndarray, crop_at: tuple[int, int], hflip: bool, vflip: bool, rotate: bool):
     input = window_normalize(input)
 
     input = torch.tensor(input)
     output = torch.empty((len(input), len(input[0])//2, len(input[0][0])//2), dtype=DATA_TYPE)
     for i, img in enumerate(input):
-        img = CenterCrop((len(img)//2, len(img[0])//2))(img)
-        output[i] = img.to(DATA_TYPE)# F.convert_image_dtype(img, torch.bfloat16)
-
-    output = torch.unsqueeze(output, 0)
-    return output
-
-def target_transform_3d(input: np.ndarray):
-    # input = (input == 255).astype(np.float32)
-    input = torch.tensor(input)
-
-    output = torch.empty((len(input), len(input[0])//2, len(input[0][0])//2), dtype=DATA_TYPE)
-    for i, img in enumerate(input):
-        img = CenterCrop((len(img)//2, len(img[0])//2))(img)
+        img = F.crop(img, *crop_at, len(img)//2, len(img[0])//2)
+        if hflip:
+            img = F.hflip(img)
+        if vflip:
+            img = F.vflip(img)
+        if rotate:
+            img = torch.unsqueeze(img, 0)
+            img = F.rotate(img, random.choice([90, -90]))
+            img = torch.squeeze(img, 0)
         output[i] = img.to(DATA_TYPE)
 
     output = torch.unsqueeze(output, 0)
     return output
 
+def target_transform_3d(input: np.ndarray, crop_at: tuple[int, int], hflip: bool, vflip: bool, rotate: bool):
+    input = torch.tensor(input)
+
+    output = torch.empty((len(input), len(input[0])//2, len(input[0][0])//2), dtype=DATA_TYPE)
+    for i, img in enumerate(input):
+        img = F.crop(img, *crop_at, len(img)//2, len(img[0])//2)
+        if hflip:
+            img = F.hflip(img)
+        if vflip:
+            img = F.vflip(img)
+        if rotate:
+            img = torch.unsqueeze(img, 0)
+            img = F.rotate(img, random.choice([90, -90]))
+            img = torch.squeeze(img, 0)
+        output[i] = img.to(DATA_TYPE)
+
+    output = torch.unsqueeze(output, 0)
+    return output
+
+def crop_index(index) -> tuple[int, int]:
+    RANGE = (64, 192)
+    random.seed(index)
+    return (random.randint(*RANGE), random.randint(*RANGE))
 
 class DicomDataset3D(Dataset):
     def __init__(self, csv_path):
@@ -105,7 +125,14 @@ class DicomDataset3D(Dataset):
         self.get_shortest_dicom()
 
     def __getitem__(self, index):
+        augmentation_no = index % len(self.im_list)
+        crop_at = crop_index(augmentation_no)
+        index = index // AUGMENT_TIMES
+        hflip = True if augmentation_no > AUGMENT_TIMES // 2 else False
+        vflip = True if augmentation_no > AUGMENT_TIMES // 4 and augmentation_no < (AUGMENT_TIMES // 4) * 3 else False
+        rotate = True if augmentation_no % 2 == 0 else False
         
+        # sample
         img = np.ndarray(shape=(self.shortest, 512, 512))
         slices = sorted(os.listdir(self.im_list[index]), key=lambda f: int(re.sub(r'\D', '', f)))
         for i, sl in zip(range(self.shortest), slices):
@@ -116,6 +143,7 @@ class DicomDataset3D(Dataset):
             tmp.convert_pixel_data('pillow')
             img[i] = tmp.pixel_array
 
+        # ground truth
         target = np.ndarray(shape=(self.shortest, 512, 512))
         slices = sorted(os.listdir(self.gt_list[index]), key=lambda f: int(re.sub(r'\D', '', f)))
         for i, sl in zip(range(self.shortest), slices):
@@ -123,18 +151,18 @@ class DicomDataset3D(Dataset):
             tmp = pydicom.dcmread(path)
             target[i] = tmp.pixel_array/255
 
-        img = default_transform_3d(img)
-        target = target_transform_3d(target)
+        img = default_transform_3d(img, crop_at, hflip, vflip, rotate)
+        target = target_transform_3d(target, crop_at, hflip, vflip, rotate)
 
         return img, target
 
     def __len__(self):
-        return len(self.im_list)
+        return len(self.im_list) * AUGMENT_TIMES
 
     def get_shortest_dicom(self):
         for im in self.im_list:
             curr = len(os.listdir(im))
             self.shortest = curr if curr < self.shortest else self.shortest
-        # ensure it is divisible by 4
-        self.shortest //= 4
-        self.shortest *= 4
+        # ensure it is divisible by 16, so upsampling results in the same dimensions
+        self.shortest //= 2**4
+        self.shortest *= 2**4
