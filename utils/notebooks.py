@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 from torchvision.transforms import functional as F
 import torch
 from torch import nn
+from monai.losses import DiceLoss
 
 def show_slice(x: torch.Tensor, y: torch.Tensor = None, layer=45):
     x = x.cpu()
@@ -37,13 +38,13 @@ def show(x: torch.Tensor, pred: torch.Tensor, y: torch.Tensor, layer=45):
 
 def plot_predictions(dataloader, model, layer=45):
     with torch.no_grad():
+        model.cpu()
         for x, y in iter(dataloader):
-            if torch.cuda.is_available():
-                x, y = x.cuda(), y.cuda()
             pred = model(x)
             pred = torch.nn.Sigmoid()(pred)
             print(pred.shape)
-            show(x, pred, y)
+            show(x, pred, y, layer)
+    model.cuda()
 
 
 def train(model, train_dl, validation_dl, optimizer, criterion, epochs, writer=None, model_name='wnet'):
@@ -72,15 +73,14 @@ def train(model, train_dl, validation_dl, optimizer, criterion, epochs, writer=N
 
         if writer:
             writer.add_scalar("Loss/train", loss, epoch)
-            if epoch % 10 == 0 and epoch > 400:
+            if epoch % 2 == 0:
                 # validation
-                val_loss = eval(model, validation_dl)
+                val_loss = eval(model, validation_dl, criterion)
                 writer.add_scalar("Loss/validation", val_loss, epoch)
             writer.flush()
         print(loss)
 
-def eval(model, dl):
-    criterion = DiceBCELoss()
+def eval(model, dl, criterion):
     device = 'cuda' if next(model.parameters()).is_cuda else 'cpu'
     running_loss = 0
     batch_size = 0
@@ -96,24 +96,3 @@ def eval(model, dl):
             batch_size += 1
     print(f'validation loss: {running_loss / batch_size}')
     return running_loss / batch_size
-
-# from https://www.kaggle.com/code/bigironsphere/loss-function-library-keras-pytorch#BCE-Dice-Loss
-class DiceBCELoss(nn.Module):
-    def __init__(self, weight=None, size_average=True):
-        super(DiceBCELoss, self).__init__()
-
-    def forward(self, inputs, targets, smooth=1):
-        
-        #comment out if your model contains a sigmoid or equivalent activation layer
-        inputs = torch.nn.functional.sigmoid(inputs)       
-        
-        #flatten label and prediction tensors
-        inputs = inputs.view(-1)
-        targets = targets.view(-1)
-        
-        intersection = (inputs * targets).sum()                            
-        dice_loss = 1 - (2.*intersection + smooth)/(inputs.sum() + targets.sum() + smooth)  
-        BCE = torch.nn.functional.binary_cross_entropy(inputs, targets, reduction='mean')
-        Dice_BCE = BCE + dice_loss
-        
-        return Dice_BCE
