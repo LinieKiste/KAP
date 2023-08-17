@@ -3,6 +3,7 @@ from torchvision.transforms import functional as F
 import torch
 from torch import nn
 from monai.losses import DiceLoss
+from monai.metrics import DiceMetric
 
 def show_slice(x: torch.Tensor, y: torch.Tensor = None, layer=45):
     x = x.cpu()
@@ -75,12 +76,12 @@ def train(model, train_dl, validation_dl, optimizer, criterion, epochs, writer=N
             writer.add_scalar("Loss/train", loss, epoch)
             if epoch % 2 == 0:
                 # validation
-                val_loss = eval(model, validation_dl, criterion)
+                val_loss = eval(model, validation_dl)
                 writer.add_scalar("Loss/validation", val_loss, epoch)
             writer.flush()
         print(loss)
 
-def eval(model, dl, criterion):
+def eval(model, dl, criterion = DiceMetric()):
     device = 'cuda' if next(model.parameters()).is_cuda else 'cpu'
     running_loss = 0
     batch_size = 0
@@ -89,10 +90,12 @@ def eval(model, dl, criterion):
         for data in iter(dl):
             inputs, labels = data
             inputs, labels = inputs.to(device), labels.to(device)
-            val_output = model(inputs)
-            val_loss = criterion(val_output, labels)
+            preds = model(inputs)
+            preds = torch.sigmoid(preds)
+            preds = (preds>0.5).float() # binarize tensor
+            dice_score = criterion(preds, labels)
 
-            running_loss += val_loss.item()
+            running_loss += torch.mean(dice_score)
             batch_size += 1
-    print(f'validation loss: {running_loss / batch_size}')
+    print(f'dice score: {running_loss / batch_size}')
     return running_loss / batch_size

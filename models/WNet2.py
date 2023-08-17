@@ -12,7 +12,7 @@ class WNetSingleOutput(nn.Module):
             in_channels=1,
             out_channels=1,
             channels=(8, 16, 32, 64, 128),
-            strides=(2, 2, 2, 2, 2),
+            strides=(2, 2, 2, 2),
             num_res_units=2,
         )
         self.batch_norm = nn.BatchNorm3d(inputs)
@@ -22,7 +22,7 @@ class WNetSingleOutput(nn.Module):
             in_channels=2,
             out_channels=1,
             channels=(8, 16, 32, 64, 128),
-            strides=(2, 2, 2, 2, 2),
+            strides=(2, 2, 2, 2),
             num_res_units=2,
         )
 
@@ -53,7 +53,7 @@ class WNet(nn.Module):
             in_channels=1,
             out_channels=2,
             channels=(8, 16, 32, 64, 128),
-            strides=(2, 2, 2, 2, 2),
+            strides=(2, 2, 2, 2),
             num_res_units=2,
         )
         self.batch_norm = nn.BatchNorm3d(inputs)
@@ -63,7 +63,7 @@ class WNet(nn.Module):
             in_channels=3,
             out_channels=2,
             channels=(8, 16, 32, 64, 128),
-            strides=(2, 2, 2, 2, 2),
+            strides=(2, 2, 2, 2),
             num_res_units=2,
         )
 

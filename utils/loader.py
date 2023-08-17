@@ -70,14 +70,14 @@ def window_normalize(input: np.ndarray, window_center=40, window_width=400):
 
     return input
 
-def default_transform_3d(input: np.ndarray, is_target: bool, crop_at: tuple[int, int], hflip: bool, vflip: bool, rotation_angle: float):
+def default_transform_3d(input: np.ndarray, is_target: bool, crop_at: tuple[int, int], crop_factor: int, hflip: bool, vflip: bool, rotation_angle: float):
     if not is_target:
         input = window_normalize(input)
 
     input = torch.tensor(input)
-    output = torch.empty((len(input), len(input[0])//2, len(input[0][0])//2), dtype=DATA_TYPE)
+    output = torch.empty((len(input), len(input[0])//crop_factor, len(input[0][0])//crop_factor), dtype=DATA_TYPE)
     for i, img in enumerate(input):
-        img = F.crop(img, *crop_at, len(img)//2, len(img[0])//2)
+        img = F.crop(img, *crop_at, len(img)//crop_factor, len(img[0])//crop_factor)
         if hflip:
             img = F.hflip(img)
         if vflip:
@@ -97,16 +97,17 @@ def default_transform_3d(input: np.ndarray, is_target: bool, crop_at: tuple[int,
         output = torch.unsqueeze(output, 0)
     return output
 
-def crop_index(index) -> tuple[int, int]:
+def crop_index() -> tuple[int, int]:
     RANGE = (64, 192)
-    random.seed(index)
     return (random.randint(*RANGE), random.randint(*RANGE))
 
 class DicomDataset3D(Dataset):
     def __init__(self, csv_path):
         self.AUGMENT_TIMES = 16
+        self.crop_factor = 4
         if csv_path == 'data/validation.csv':
-            self.AUGMENT_TIMES = 8
+            self.AUGMENT_TIMES = 4
+            self.crop_factor = 2
         df = pd.read_csv(csv_path)
         self.im_list = df.im_paths
         self.gt_list = df.gt_paths
@@ -116,7 +117,7 @@ class DicomDataset3D(Dataset):
 
     def __getitem__(self, index):
         augmentation_no = index % len(self.im_list)
-        crop_at = crop_index(augmentation_no)
+        crop_at = crop_index()
         index = index // self.AUGMENT_TIMES
         hflip = True if augmentation_no > self.AUGMENT_TIMES // 2 else False
         vflip = True if augmentation_no > self.AUGMENT_TIMES // 4 and augmentation_no < (self.AUGMENT_TIMES // 4) * 3 else False
@@ -125,7 +126,8 @@ class DicomDataset3D(Dataset):
         # sample
         img = np.ndarray(shape=(self.shortest, 512, 512))
         slices = sorted(os.listdir(self.im_list[index]), key=lambda f: int(re.sub(r'\D', '', f)))
-        for i, sl in zip(range(self.shortest), slices):
+        z_crop = random.randint(0, len(slices)-self.shortest)
+        for i, sl in zip(range(self.shortest), slices[z_crop:]):
             path = f"{self.im_list[index]}/{sl}"
 
             tmp = pydicom.dcmread(path)
@@ -136,14 +138,14 @@ class DicomDataset3D(Dataset):
         # ground truth
         target = np.ndarray(shape=(self.shortest, 512, 512))
         slices = sorted(os.listdir(self.gt_list[index]), key=lambda f: int(re.sub(r'\D', '', f)))
-        for i, sl in zip(range(self.shortest), slices):
+        for i, sl in zip(range(self.shortest), slices[z_crop:]):
             path = f"{self.gt_list[index]}/{sl}"
             tmp = pydicom.dcmread(path)
             target[i] = tmp.pixel_array/255
 
         # vflip, hflip, rotation_angle = False, False, 0 # removes augmentations
-        img = default_transform_3d(img, False, crop_at, hflip, vflip, rotation_angle)
-        target = default_transform_3d(target, True, crop_at, hflip, vflip, rotation_angle)
+        img = default_transform_3d(img, False, crop_at, self.crop_factor, hflip, vflip, rotation_angle)
+        target = default_transform_3d(target, True, crop_at, self.crop_factor, hflip, vflip, rotation_angle)
 
         return img, target
 
