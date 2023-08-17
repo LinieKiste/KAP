@@ -1,3 +1,3 @@
 im_paths,gt_paths
-data/3Dircadb1/3Dircadb1.14/PATIENT_DICOM,data/3Dircadb1/3Dircadb1.14/MASKS_DICOM/portalvein
-data/3Dircadb1/3Dircadb1.15/PATIENT_DICOM,data/3Dircadb1/3Dircadb1.15/MASKS_DICOM/portalvein
+data/3Dircadb1/3Dircadb1.14/resampled_volume.nii,data/3Dircadb1/3Dircadb1.14/resampled_mask.nii
+data/3Dircadb1/3Dircadb1.15/resampled_volume.nii,data/3Dircadb1/3Dircadb1.15/resampled_mask.nii

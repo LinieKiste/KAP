@@ -6,12 +6,14 @@ import torch
 import numpy as np
 import pandas as pd
 import pydicom
+import nibabel as nib
 import os
 import math
 import regex as re
 import random
 
 DATA_TYPE = torch.float32
+USE_NIFTI = True
 
 # PyTorch does not support uint16, so ToTensor() does not work :(
 def default_transform_2d(input):
@@ -74,7 +76,7 @@ def default_transform_3d(input: np.ndarray, is_target: bool, crop_at: tuple[int,
     if not is_target:
         input = window_normalize(input)
 
-    input = torch.tensor(input)
+    input = torch.tensor(input).permute(2,0,1) if USE_NIFTI else torch.tensor(input)
     output = torch.empty((len(input), len(input[0])//crop_factor, len(input[0][0])//crop_factor), dtype=DATA_TYPE)
     for i, img in enumerate(input):
         img = F.crop(img, *crop_at, len(img)//crop_factor, len(img[0])//crop_factor)
@@ -93,8 +95,7 @@ def default_transform_3d(input: np.ndarray, is_target: bool, crop_at: tuple[int,
     #     output = torch.nn.functional.one_hot(output.to(torch.int64), num_classes = 2).permute(3,0,1,2).contiguous()
     #     output = output.to(torch.float32)
 
-    else:
-        output = torch.unsqueeze(output, 0)
+    output = torch.unsqueeze(output, 0)
     return output
 
 def crop_index() -> tuple[int, int]:
@@ -104,16 +105,16 @@ def crop_index() -> tuple[int, int]:
 class DicomDataset3D(Dataset):
     def __init__(self, csv_path):
         self.AUGMENT_TIMES = 16
-        self.crop_factor = 4
+        self.crop_factor = 2
         if csv_path == 'data/validation.csv':
             self.AUGMENT_TIMES = 4
-            self.crop_factor = 2
+            self.crop_factor = 1
         df = pd.read_csv(csv_path)
         self.im_list = df.im_paths
         self.gt_list = df.gt_paths
 
-        self.shortest = 2147483647
-        self.get_shortest_dicom()
+        self.shortest = [2147483647,2147483647,2147483647]
+        self.get_shortest_nifti() if USE_NIFTI else self.get_shortest_dicom()
 
     def __getitem__(self, index):
         augmentation_no = index % len(self.im_list)
@@ -124,24 +125,48 @@ class DicomDataset3D(Dataset):
         rotation_angle = 0 if augmentation_no % 2 == 0 else random.choice([90, -90])
         
         # sample
-        img = np.ndarray(shape=(self.shortest, 512, 512))
-        slices = sorted(os.listdir(self.im_list[index]), key=lambda f: int(re.sub(r'\D', '', f)))
-        z_crop = random.randint(0, len(slices)-self.shortest)
-        for i, sl in zip(range(self.shortest), slices[z_crop:]):
-            path = f"{self.im_list[index]}/{sl}"
+        if USE_NIFTI:
+            img = nib.load(self.im_list[index]).get_fdata()   
+            offsets = (
+                random.randint(0, img.shape[2]-self.shortest[0]),
+                random.randint(0, img.shape[0]-self.shortest[1]),
+                random.randint(0, img.shape[1]-self.shortest[2])
+                )
+            img = img[
+                offsets[1]:offsets[1]+self.shortest[1],
+                offsets[2]:offsets[2]+self.shortest[2],
+                offsets[0]:offsets[0]+self.shortest[0]
+                ]
+        # dicom
+        else:
+            img = np.ndarray(shape=(self.shortest[0], 512, 512))
+            slices = sorted(os.listdir(self.im_list[index]), key=lambda f: int(re.sub(r'\D', '', f)))
+            z_offset = random.randint(0, len(slices)-self.shortest[0])
+            for i, sl in zip(range(self.shortest[0]), slices[z_crop:]):
+                path = f"{self.im_list[index]}/{sl}"
 
-            tmp = pydicom.dcmread(path)
-            tmp.decompress()
-            tmp.convert_pixel_data('pillow')
-            img[i] = tmp.pixel_array
+                tmp = pydicom.dcmread(path)
+                tmp.decompress()
+                tmp.convert_pixel_data('pillow')
+                img[i] = tmp.pixel_array
 
         # ground truth
-        target = np.ndarray(shape=(self.shortest, 512, 512))
-        slices = sorted(os.listdir(self.gt_list[index]), key=lambda f: int(re.sub(r'\D', '', f)))
-        for i, sl in zip(range(self.shortest), slices[z_crop:]):
-            path = f"{self.gt_list[index]}/{sl}"
-            tmp = pydicom.dcmread(path)
-            target[i] = tmp.pixel_array/255
+        if USE_NIFTI:
+            target = nib.load(self.gt_list[index]).get_fdata()   
+            div = np.max(target)
+            target = target[
+                offsets[1]:offsets[1]+self.shortest[1],
+                offsets[2]:offsets[2]+self.shortest[2],
+                offsets[0]:offsets[0]+self.shortest[0]
+                ] /div
+            target = np.round(target)
+        else:
+            target = np.ndarray(shape=(self.shortest[0], 512, 512))
+            slices = sorted(os.listdir(self.gt_list[index]), key=lambda f: int(re.sub(r'\D', '', f)))
+            for i, sl in zip(range(self.shortest[0]), slices[z_crop:]):
+                path = f"{self.gt_list[index]}/{sl}"
+                tmp = pydicom.dcmread(path)
+                target[i] = tmp.pixel_array/255
 
         # vflip, hflip, rotation_angle = False, False, 0 # removes augmentations
         img = default_transform_3d(img, False, crop_at, self.crop_factor, hflip, vflip, rotation_angle)
@@ -153,9 +178,22 @@ class DicomDataset3D(Dataset):
         return len(self.im_list) * self.AUGMENT_TIMES
 
     def get_shortest_dicom(self):
+        self.shortest[1] = 512
+        self.shortest[2] = 512
         for im in self.im_list:
             curr = len(os.listdir(im))
-            self.shortest = curr if curr < self.shortest else self.shortest
+            self.shortest[0] = curr if curr < self.shortest[0] else self.shortest[0]
         # ensure it is divisible by 16, so upsampling results in the same dimensions
         self.shortest //= 2**4
         self.shortest *= 2**4
+
+    def get_shortest_nifti(self):
+        for im_path in self.im_list:
+            img = nib.load(im_path).get_fdata()
+            curr = img.shape
+            self.shortest[0] = curr[2] if curr[2] < self.shortest[0] else self.shortest[0]
+            self.shortest[1] = curr[0] if curr[0] < self.shortest[1] else self.shortest[1]
+            self.shortest[2] = curr[1] if curr[1] < self.shortest[2] else self.shortest[2]
+
+        self.shortest = [x // 2**5 for x in self.shortest]
+        self.shortest = [x * 2**5 for x in self.shortest]
