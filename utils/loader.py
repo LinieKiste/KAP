@@ -108,7 +108,6 @@ class DicomDataset3D(Dataset):
 
     def __getitem__(self, index):
         augmentation_no = index % len(self.im_list)
-        crop_at = self.crop_index()
         index = index // self.AUGMENT_TIMES
         hflip = True if augmentation_no > self.AUGMENT_TIMES // 2 else False
         vflip = True if augmentation_no > self.AUGMENT_TIMES // 4 and augmentation_no < (self.AUGMENT_TIMES // 4) * 3 else False
@@ -158,6 +157,11 @@ class DicomDataset3D(Dataset):
                 tmp = pydicom.dcmread(path)
                 target[i] = tmp.pixel_array/255
 
+        crop_range = [
+            (0, self.shortest[1]-(self.shortest[1]/self.crop_factor)),
+            (0, self.shortest[2]-(self.shortest[2]/self.crop_factor))
+        ]
+        crop_at = (random.randint(*crop_range[0]), random.randint(*crop_range[1]))
         # vflip, hflip, rotation_angle = False, False, 0 # removes augmentations
         img = default_transform_3d(img, False, crop_at, self.crop_factor, hflip, vflip, rotation_angle)
         target = default_transform_3d(target, True, crop_at, self.crop_factor, hflip, vflip, rotation_angle)
