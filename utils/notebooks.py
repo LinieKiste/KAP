@@ -4,6 +4,7 @@ import torch
 from torch import nn
 from monai.losses import DiceLoss
 from monai.metrics import DiceMetric
+import numpy as np
 
 def show_slice(x: torch.Tensor, y: torch.Tensor = None, layer=45):
     x = x.cpu()
@@ -74,14 +75,14 @@ def train(model, train_dl, validation_dl, optimizer, criterion, epochs, writer=N
 
         if writer:
             writer.add_scalar("Loss/train", loss, epoch)
-            if epoch % 2 == 0:
+            if epoch % 3 == 0:
                 # validation
                 val_loss = eval(model, validation_dl)
                 writer.add_scalar("Loss/validation", val_loss, epoch)
             writer.flush()
         print(loss)
 
-def eval(model, dl, criterion = DiceMetric()):
+def eval(model, dl):
     device = 'cuda' if next(model.parameters()).is_cuda else 'cpu'
     running_loss = 0
     batch_size = 0
@@ -93,9 +94,17 @@ def eval(model, dl, criterion = DiceMetric()):
             preds = model(inputs)
             preds = torch.sigmoid(preds)
             preds = (preds>0.5).float() # binarize tensor
-            dice_score = criterion(preds, labels)
+            score = dice_score(labels, preds)
 
-            running_loss += torch.mean(dice_score)
+            running_loss += score
             batch_size += 1
     print(f'dice score: {running_loss / batch_size}')
     return running_loss / batch_size
+
+def dice_score(actual, predicted) -> float:
+    actual = np.asarray(actual.cpu()).astype(bool)
+    predicted = np.asarray(predicted.cpu()).astype(bool)
+    im_sum = actual.sum() + predicted.sum()
+    if im_sum == 0: return 1
+    intersection = np.logical_and(actual, predicted)
+    return 2. * intersection.sum() / im_sum

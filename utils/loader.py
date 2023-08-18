@@ -13,7 +13,7 @@ import regex as re
 import random
 
 DATA_TYPE = torch.float32
-USE_NIFTI = True
+USE_NIFTI = False
 
 # PyTorch does not support uint16, so ToTensor() does not work :(
 def default_transform_2d(input):
@@ -89,18 +89,8 @@ def default_transform_3d(input: np.ndarray, is_target: bool, crop_at: tuple[int,
         img = torch.squeeze(img, 0)
         output[i] = img.to(DATA_TYPE)
 
-    # if is_target:
-    #     output = torch.heaviside(output, torch.tensor([0.0]))
-    #     output = torch.squeeze(output, 1)
-    #     output = torch.nn.functional.one_hot(output.to(torch.int64), num_classes = 2).permute(3,0,1,2).contiguous()
-    #     output = output.to(torch.float32)
-
     output = torch.unsqueeze(output, 0)
     return output
-
-def crop_index() -> tuple[int, int]:
-    RANGE = (64, 192)
-    return (random.randint(*RANGE), random.randint(*RANGE))
 
 class DicomDataset3D(Dataset):
     def __init__(self, csv_path):
@@ -118,7 +108,7 @@ class DicomDataset3D(Dataset):
 
     def __getitem__(self, index):
         augmentation_no = index % len(self.im_list)
-        crop_at = crop_index()
+        crop_at = self.crop_index()
         index = index // self.AUGMENT_TIMES
         hflip = True if augmentation_no > self.AUGMENT_TIMES // 2 else False
         vflip = True if augmentation_no > self.AUGMENT_TIMES // 4 and augmentation_no < (self.AUGMENT_TIMES // 4) * 3 else False
@@ -142,7 +132,7 @@ class DicomDataset3D(Dataset):
             img = np.ndarray(shape=(self.shortest[0], 512, 512))
             slices = sorted(os.listdir(self.im_list[index]), key=lambda f: int(re.sub(r'\D', '', f)))
             z_offset = random.randint(0, len(slices)-self.shortest[0])
-            for i, sl in zip(range(self.shortest[0]), slices[z_crop:]):
+            for i, sl in enumerate(slices[z_offset:z_offset+self.shortest[0]]):
                 path = f"{self.im_list[index]}/{sl}"
 
                 tmp = pydicom.dcmread(path)
@@ -163,7 +153,7 @@ class DicomDataset3D(Dataset):
         else:
             target = np.ndarray(shape=(self.shortest[0], 512, 512))
             slices = sorted(os.listdir(self.gt_list[index]), key=lambda f: int(re.sub(r'\D', '', f)))
-            for i, sl in zip(range(self.shortest[0]), slices[z_crop:]):
+            for i, sl in enumerate(slices[z_offset:z_offset+self.shortest[0]]):
                 path = f"{self.gt_list[index]}/{sl}"
                 tmp = pydicom.dcmread(path)
                 target[i] = tmp.pixel_array/255
@@ -184,8 +174,8 @@ class DicomDataset3D(Dataset):
             curr = len(os.listdir(im))
             self.shortest[0] = curr if curr < self.shortest[0] else self.shortest[0]
         # ensure it is divisible by 16, so upsampling results in the same dimensions
-        self.shortest //= 2**4
-        self.shortest *= 2**4
+        self.shortest = [x // 2**5 for x in self.shortest]
+        self.shortest = [x * 2**5 for x in self.shortest]
 
     def get_shortest_nifti(self):
         for im_path in self.im_list:
@@ -197,3 +187,7 @@ class DicomDataset3D(Dataset):
 
         self.shortest = [x // 2**5 for x in self.shortest]
         self.shortest = [x * 2**5 for x in self.shortest]
+
+    def crop_index(self) -> tuple[int, int]:
+        RANGE = (0, 192)
+        return (random.randint(*RANGE), random.randint(*RANGE))
